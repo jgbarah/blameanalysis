@@ -18,14 +18,21 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 #
 # Authors:
-#     Santiago Dueñas <sduenas@bitergia.com>
+#     Jesus M. Gonzalez-Barahona <jgb@bitergia.com>
 #
 
 import argparse
 import logging
 import json
 import shelve
+import datetime
+import os.path
+import elasticsearch
+import elasticsearch.helpers
 from perceval.backends import GitBlame
+
+import urllib3
+urllib3.disable_warnings()
 
 description = """Analyze a git repository using Perceval GitBlame.
 
@@ -41,28 +48,33 @@ def parse_args ():
     parser.add_argument("--repodir", type=str,
                         help = "Directory for the repository")
     parser.add_argument("--store", type=str,
-                        help = "File for storing the data produced")
+                        help = "File for storing the raw data from git blame")
+    parser.add_argument("--processed", type=str,
+                        help = "File for the processed data")
+    parser.add_argument("--store_only", action='store_true',
+                        help = "Only produce the store (raw data), and stop afterwards")
+    parser.add_argument("--process_only", action='store_true',
+                        help = "Only process data (including producing store, if needed), and stop afterwards")
+    parser.add_argument("--assume_store", action='store_true',
+                        help = "Assume store (git blame raw data) was already produced")
+    parser.add_argument("--assume_processed", action='store_true',
+                        help = "Assume processed (git blame processed data) was already produced")
     parser.add_argument("repouri", type=str,
                         help = "URI for the repository")
+    parser.add_argument("-e", "--es_url", type=str,
+                        help = "ElasticSearch url (http://user:secret@host:port/res)")
+    parser.add_argument("-i", "--es_index", type=str, default="blame",
+                        help = "ElasticSearch index prefix")
     args = parser.parse_args()
     return args
 
-if __name__ == "__main__":
-    args = parse_args()
-    if args.logging:
-        log_format = '%(levelname)s:%(message)s'
-        if args.logging == "info":
-            level = logging.INFO
-        elif args.logging == "debug":
-            level = logging.DEBUG
-        if args.logfile:
-            logging.basicConfig(format=log_format, level=level,
-                                filename = args.logfile, filemode = "w")
-        else:
-            logging.basicConfig(format=log_format, level=level)
+def blame_analysis(repouri, repodir, store):
+    """Analyze blame, storing data in store.
 
-    store = shelve.open(args.store)
-    git_blame = GitBlame(uri=args.repouri, gitpath=args.repodir)
+    """
+
+#    store = shelve.open(storename)
+    git_blame = GitBlame(uri=repouri, gitpath=repodir)
 
     try:
         nsnippet = 0
@@ -87,10 +99,252 @@ if __name__ == "__main__":
 
         print("Analyzed files: ", nfile)
         print("Analyzed snippets: ", nsnippet)
-        store.close()
+        store.sync()
     except OSError as e:
-        store.close()
+        store.sync()
         raise RuntimeError(str(e))
     except Exception as e:
-        store.close()
+        store.sync()
         raise RuntimeError(str(e))
+
+def blame_process(store, processed, now):
+    """Process git blame raw data.
+
+    Reads raw data in store, to produce data in processed, better
+    organized for further analysis.
+
+    processed could be partially filled in, in which case old data
+    will be preserved, acting as a kind of cache.
+
+    :param store:     shelve file with git blame raw data
+    :param processed: shelve file with processed data
+    :param now:       timestamp considered as "now"
+
+    """
+
+    nfile = 0
+    nhash = 0
+    files_done = 0
+    errors = []
+
+    for file in store:
+        if file in processed:
+            files_done += 1
+            continue
+
+        nfile += 1
+        snippets = store[file]
+        data = {}
+        file_components = file.split('/',4)
+        if len(file_components) > 1:
+            dir1 = file_components[0]
+        else:
+            dir1 = None
+        if len(file_components) > 2:
+            dir2 = file_components[1]
+        else:
+            dir2 = None
+        if len(file_components) > 3:
+            dir3 = file_components[2]
+        else:
+            dir3 = None
+        if len(file_components) > 4:
+            dir4 = file_components[3]
+        else:
+            dir4 = None
+        ext = os.path.splitext(file)[1]
+
+        for snippet in snippets:
+            snippet_data = snippet['data']
+            hash = snippet_data['hash']
+            logging.debug("snippet_data: " + str(snippet_data))
+
+            if hash not in data:
+                nhash += 1
+                try:
+                    data[hash] = {
+                        'file': file,
+                        'hash': snippet_data['hash'],
+                        'committer_time': int(snippet_data['committer-time']),
+                        'author_time': int(snippet_data['author-time']),
+                        'committer_tz': snippet_data['committer-tz'],
+                        'author_tz': snippet_data['author-tz'],
+                        'committer_duration': now - int(snippet_data['committer-time']),
+                        'author_duration': now - int(snippet_data['author-time']),
+                        'committer': snippet_data['committer'],
+                        'author': snippet_data['author'],
+                        'lines': int(snippet_data['lines']),
+                        'summary': snippet_data['summary'],
+                        'dir1': dir1,
+                        'dir2': dir2,
+                        'dir3': dir3,
+                        'dir4': dir4,
+                        'ext': ext
+                        }
+                except KeyError:
+                    error = {'error': 'KeyError', 'data': snippet_data}
+                    logging.debug("Error: " + str(error))
+                    errors.append(error)
+
+            else:
+                data[hash]['lines'] += int(snippet_data['lines'])
+            logging.info("Files / hashes done: %d / %d.", nfile, nhash)
+
+        processed[file] = data
+
+    logging.info("Process finished: (files present, files done, hashes done): %d, %d, %d.",
+                files_done, nfile, nhash)
+    store.sync()
+    if len(errors) > 0:
+        print("ERRORS:")
+    for error in errors:
+        print(str(error))
+
+mapping_file_hash = {
+    "properties" : {
+        "author": {"type": "string",
+                    "index": "not_analyzed"},
+        "author_time": {"type": "date",
+                    "format": "epoch_second"},
+        "committer": {"type": "string",
+                    "index": "not_analyzed"},
+        "committer_time": {"type": "date",
+                    "format": "epoch_second"},
+        "summary": {"type": "string",
+                    "index": "not_analyzed"},
+        "file": {"type": "string",
+                    "index": "not_analyzed"},
+        "hash": {"type": "string",
+                    "index": "not_analyzed"},
+        "dir1": {"type": "string",
+                    "index": "not_analyzed"},
+        "dir2": {"type": "string",
+                    "index": "not_analyzed"},
+        "dir3": {"type": "string",
+                    "index": "not_analyzed"},
+        "dir4": {"type": "string",
+                    "index": "not_analyzed"},
+        "ext": {"type": "string",
+                    "index": "not_analyzed"}
+
+    }
+}
+
+class BlameUpload():
+
+    def __init__(self, processed, es_index, es_type):
+
+        self.processed = processed
+        self.es_index = es_index
+        self.es_type = es_type
+
+    def generator(self):
+        for file in self.processed:
+            for hash in processed[file]:
+                item = processed[file][hash]
+                action = {
+                    '_index': self.es_index,
+                    '_type': self.es_type,
+                    '_id': item['hash'] + item['file'].replace('/','%2F'),
+                    '_source': item
+                }
+                logging.info("Produced item for %s, %s.", file, hash)
+                yield action
+
+def blame_upload_raw(processed, es_url, es_index):
+
+    es = elasticsearch.Elasticsearch([es_url])
+    es_type = 'file_hash'
+
+    try:
+        es.indices.delete(es_index)
+    except elasticsearch.exceptions.NotFoundError:
+        # Index could not be deleted because it was not found. Ignore.
+        logging.info("Could not delete index, it was not found: %s",
+                    es_index)
+    es.indices.create(es_index,
+                    {"mappings": {es_type: mapping_file_hash}})
+
+    actions = BlameUpload(processed=processed, es_index=es_index,
+                es_type=es_type).generator()
+
+    result = elasticsearch.helpers.bulk(client=es, actions=actions)
+    print("Uploaded: ", result)
+
+def blame_upload(processed, es_url, es_index):
+    """Upload data to ElasticSearch.
+
+    """
+
+    es = elasticsearch.Elasticsearch([es_url])
+    es_type = 'file_hash'
+
+    try:
+        es.indices.delete(es_index)
+    except elasticsearch.exceptions.NotFoundError:
+        # Index could not be deleted because it was not found. Ignore.
+        logging.info("Could not delete index, it was not found: " \
+                    + es_index)
+    es.indices.create(es_index,
+                    {"mappings": {es_type: mapping_file_hash}})
+
+    for file in processed:
+        for hash in processed[file]:
+            item = processed[file][hash]
+            logging.info("Uploading %s, %s", file, hash)
+            # Check surrogate escaping, and remove it if needed
+            try:
+                res = es.index(index = es_index, doc_type = es_type,
+                                id = item['hash']+item['file'].replace('/','%2F'),
+                                body = item)
+            except UnicodeEncodeError as e:
+                if e.reason == 'surrogates not allowed':
+                    logging.debug ("Surrogate found in: " + str(item))
+                    item = item.encode('utf-8', "backslashreplace").decode('utf-8')
+                    res = es.index(index = es_index, doc_type = es_type,
+                                    id = item['hash']+item['file'], body = item)
+                else:
+                    raise
+            logging.debug("Result: " + str(res))
+
+if __name__ == "__main__":
+    args = parse_args()
+    if args.logging:
+        log_format = '%(levelname)s:%(message)s'
+        if args.logging == "info":
+            level = logging.INFO
+        elif args.logging == "debug":
+            level = logging.DEBUG
+        if args.logfile:
+            logging.basicConfig(format=log_format, level=level,
+                                filename = args.logfile, filemode = "w")
+        else:
+            logging.basicConfig(format=log_format, level=level)
+
+    store = shelve.open(args.store)
+    if not args.assume_store:
+        blame_analysis(repouri=args.repouri, repodir=args.repodir,
+                        store=store)
+    if args.store_only:
+        store.close()
+        exit()
+
+    processed = shelve.open(args.processed)
+    now = datetime.datetime.utcnow().timestamp()
+    if not args.assume_processed:
+        try:
+            blame_process(store=store, processed=processed, now=now)
+        except:
+            store.close()
+            processed.close()
+            raise
+
+    if args.process_only:
+        store.close()
+        processed.close()
+        exit()
+
+    blame_upload_raw(processed=processed, es_url=args.es_url, es_index=args.es_index)
+
+    store.close()
+    processed.close()
