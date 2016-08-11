@@ -25,3 +25,30 @@ python3 blame_analysis.py --repodir linux \
  http://github.com/torvalds/linux -l info --assume_processed \
  --es_url https://user:passwd@es.instance.io
  ```
+
+## Notes and comments
+
+You can run 'blame_analysis.py' on the full history of the Linux kernel.
+
+http://www.padator.org/linux.php
+
+The git repo can be obtained from the Internet Archive: https://archive.org/details/git-history-of-linux
+
+A version of it that points to the current Linux git repo, and therefore can be updated as of today:
+
+https://landley.net/kdocs/fullhist/
+
+https://landley.net/kdocs/local/linux-fullhist.tar.bz2
+
+Get that last one and:
+
+```sh
+tar xvjf linux-fullhist.tar.bz2
+cd linux
+git checkout -f
+git clean -f
+git fetch
+git rebase
+```
+
+Then, run 'blame_analysis.py' as commented above.
