@@ -51,14 +51,16 @@ def parse_args ():
                         help = "File for storing the raw data from git blame")
     parser.add_argument("--processed", type=str,
                         help = "File for the processed data")
+    parser.add_argument("--uploaded", type=str,
+                        help = "File for the uploaded data")
     parser.add_argument("--store_only", action='store_true',
                         help = "Only produce the store (raw data), and stop afterwards")
     parser.add_argument("--process_only", action='store_true',
                         help = "Only process data (including producing store, if needed), and stop afterwards")
+    parser.add_argument("--assume_processed", action='store_true',
+                        help = "Assume data is fully processed")
     parser.add_argument("--assume_store", action='store_true',
                         help = "Assume store (git blame raw data) was already produced")
-    parser.add_argument("--assume_processed", action='store_true',
-                        help = "Assume processed (git blame processed data) was already produced")
     parser.add_argument("repouri", type=str,
                         help = "URI for the repository")
     parser.add_argument("-e", "--es_url", type=str,
@@ -230,46 +232,86 @@ mapping_file_hash = {
     }
 }
 
+def remove_surrogates(s, method='replace'):
+    return s.encode('utf-8', 'replace').decode('utf-8')
+
+def is_surrogate_escaped(text):
+    try:
+        text.encode('utf-8')
+    except UnicodeEncodeError as e:
+        if e.reason == 'surrogates not allowed':
+            return True
+    return False
+
 class BlameUpload():
 
-    def __init__(self, processed, es_index, es_type):
+    def __init__(self, processed, uploaded, es_index, es_type):
 
         self.processed = processed
+        self.uploaded = uploaded
         self.es_index = es_index
         self.es_type = es_type
 
     def generator(self):
+
+        items_uploaded = 0
+        items_to_upload = 0
         for file in self.processed:
             for hash in processed[file]:
                 item = processed[file][hash]
+                id = item['hash'] + item['file'].replace('/','%2F')
+                if (id in uploaded) and uploaded[id]:
+                    items_uploaded += 1
+                    continue
+                items_to_upload += 1
+                for key in ['author', 'committer', 'summary']:
+                    if is_surrogate_escaped(item[key]):
+                        logging.info("Removing surrogates. Text: %s, file: %s, field: %s.",
+                                    item[key], file, key)
+                        item[key] = remove_surrogates(item[key])
                 action = {
                     '_index': self.es_index,
                     '_type': self.es_type,
-                    '_id': item['hash'] + item['file'].replace('/','%2F'),
+                    '_id': id,
                     '_source': item
                 }
-                logging.info("Produced item for %s, %s.", file, hash)
+                logging.debug("Produced item for %s, %s.", file, hash)
                 yield action
+        print('Items already uploaded: ', str(items_uploaded), ", to upload: ", str(items_to_upload))
 
-def blame_upload_raw(processed, es_url, es_index):
+def blame_upload_raw(processed, uploaded, es_url, es_index):
 
     es = elasticsearch.Elasticsearch([es_url])
     es_type = 'file_hash'
 
-    try:
-        es.indices.delete(es_index)
-    except elasticsearch.exceptions.NotFoundError:
-        # Index could not be deleted because it was not found. Ignore.
-        logging.info("Could not delete index, it was not found: %s",
+    print("Already uploaded items: ", len(uploaded.keys()))
+    if len(uploaded.keys()) == 0:
+        # No keys uploaded, we can delete the index and start from scratch
+        try:
+            es.indices.delete(es_index)
+        except elasticsearch.exceptions.NotFoundError:
+            # Index could not be deleted because it was not found. Ignore.
+            logging.info("Could not delete index, it was not found: %s",
                     es_index)
-    es.indices.create(es_index,
-                    {"mappings": {es_type: mapping_file_hash}})
+        es.indices.create(es_index,
+                        {"mappings": {es_type: mapping_file_hash}})
 
-    actions = BlameUpload(processed=processed, es_index=es_index,
-                es_type=es_type).generator()
+    actions = BlameUpload(processed=processed, uploaded=uploaded,
+                es_index=es_index, es_type=es_type).generator()
 
-    result = elasticsearch.helpers.bulk(client=es, actions=actions)
-    print("Uploaded: ", result)
+#    result = elasticsearch.helpers.bulk(client=es, actions=actions)
+    items_uploaded = 0
+    items_failed = 0
+    for result in elasticsearch.helpers.streaming_bulk(client=es, actions=actions, chunk_size=500):
+        id = result[1]['index']['_id']
+        if result[0] == True:
+            uploaded[id] = True
+            items_uploaded += 1
+        else:
+            uploaded[id] = False
+            items_failed += 1
+        logging.debug("Uploaded: %s (%s)", id, result[0])
+    print("Items actually uploaded: ", items_uploaded, ", items failed: ", items_failed)
 
 def blame_upload(processed, es_url, es_index):
     """Upload data to ElasticSearch.
@@ -322,7 +364,7 @@ if __name__ == "__main__":
             logging.basicConfig(format=log_format, level=level)
 
     store = shelve.open(args.store)
-    if not args.assume_store:
+    if (not args.assume_store) and (not args.assume_processed) :
         blame_analysis(repouri=args.repouri, repodir=args.repodir,
                         store=store)
     if args.store_only:
@@ -333,7 +375,8 @@ if __name__ == "__main__":
     now = datetime.datetime.utcnow().timestamp()
     if not args.assume_processed:
         try:
-            blame_process(store=store, processed=processed, now=now)
+            blame_process(store=store, processed=processed,
+                        uploaded=uploaded, now=now)
         except:
             store.close()
             processed.close()
@@ -344,7 +387,16 @@ if __name__ == "__main__":
         processed.close()
         exit()
 
-    blame_upload_raw(processed=processed, es_url=args.es_url, es_index=args.es_index)
+    uploaded = shelve.open(args.uploaded)
+    try:
+        blame_upload_raw(processed=processed, uploaded=uploaded,
+                        es_url=args.es_url, es_index=args.es_index)
+    except:
+        store.close()
+        processed.close()
+        uploaded.close()
+        raise
 
     store.close()
     processed.close()
+    uploaded.close()
