@@ -1,0 +1,38 @@
+[
+  {
+    "_id": "Blame",
+    "_type": "search",
+    "_source": {
+      "title": "Blame",
+      "description": "",
+      "hits": 0,
+      "columns": [
+        "author_duration",
+        "author_time",
+        "author",
+        "author_tz",
+        "committer",
+        "committer_duration",
+        "committer_time",
+        "committer_tz",
+        "file",
+        "hash",
+        "lines",
+        "summary",
+        "dir1",
+        "dir2",
+        "dir3",
+        "dir4",
+        "ext"
+      ],
+      "sort": [
+        "committer_time",
+        "desc"
+      ],
+      "version": 1,
+      "kibanaSavedObjectMeta": {
+        "searchSourceJSON": "{\"index\":\"blame\",\"query\":{\"query_string\":{\"analyze_wildcard\":true,\"query\":\"*\"}},\"filter\":[],\"highlight\":{\"pre_tags\":[\"@kibana-highlighted-field@\"],\"post_tags\":[\"@/kibana-highlighted-field@\"],\"fields\":{\"*\":{}},\"require_field_match\":false,\"fragment_size\":2147483647}}"
+      }
+    }
+  }
+]

@@ -2,17 +2,17 @@
 
 ## Examples
 
-To analyze the git repository 'linux', from origin repo
-http://github.com/torvalds/linux using 'linux--store.db' for
-storing raw data, 'linux-processed.db' for processed data, and
-'linux-uploaded.db' for tracking uploaded items, and Uploading
+To analyze the git repository `linux`, from origin repo
+http://github.com/torvalds/linux.git using `linux--store.db` for
+storing raw data, `linux-processed.db` for processed data, and
+`linux-uploaded.db` for tracking uploaded items, and Uploading
 results to an ElasticSearch instance in
 https://user:passwd@es.instance.io. Logging level 'info'.
 
 ```sh
 python3 blame_analysis.py --repodir linux \
  --store linux-store --processed linux-processed --uploaded linux-uploaded \
- http://github.com/torvalds/linux -l info \
+ http://github.com/torvalds/linux.git -l info \
  --es_url https://user:passwd@es.instance.io
  ```
 
@@ -34,7 +34,7 @@ http://www.padator.org/linux.php
 
 The git repo can be obtained from the Internet Archive: https://archive.org/details/git-history-of-linux
 
-A version of it that points to the current Linux git repo, and therefore can be updated as of today:
+A version of it that points to the current Linux git repo, git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git and therefore can be updated as of today:
 
 https://landley.net/kdocs/fullhist/
 
