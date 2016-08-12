@@ -375,8 +375,7 @@ if __name__ == "__main__":
     now = datetime.datetime.utcnow().timestamp()
     if not args.assume_processed:
         try:
-            blame_process(store=store, processed=processed,
-                        uploaded=uploaded, now=now)
+            blame_process(store=store, processed=processed, now=now)
         except:
             store.close()
             processed.close()
