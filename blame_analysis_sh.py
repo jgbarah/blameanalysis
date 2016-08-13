@@ -71,6 +71,14 @@ def parse_args ():
                         help = "ElasticSearch url (http://user:secret@host:port/res)")
     parser.add_argument("-i", "--es_index", type=str, default="blame",
                         help = "ElasticSearch index prefix")
+    parser.add_argument("--shdb", type=str,
+                        help = "Sorting Hat database")
+    parser.add_argument("--shuser", type=str,
+                        help = "Sorting Hat database user")
+    parser.add_argument("--shpasswd", type=str,
+                        help = "Sorting Hat database passwd")
+    parser.add_argument("--shhost", type=str,
+                        help = "Sorting Hat database host")
     args = parser.parse_args()
     return args
 
@@ -371,8 +379,8 @@ if __name__ == "__main__":
     if not args.assume_processed:
         try:
             if args.sortinghat:
-                identities = Identities(user='jgb', password='XXX',
-                                    database='sortinghat', host='localhost')
+                identities = Identities(user=args.shuser, password=args.shpasswd,
+                                    database=args.shdb, host=args.shhost)
             else:
                 identities = None
             blame_process(store=store, processed=processed,
