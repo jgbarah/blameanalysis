@@ -389,10 +389,10 @@ class BlameUpload():
         items_uploaded = 0
         items_to_upload = 0
         for file in self.processed:
-            for hash in processed[file]:
-                item = processed[file][hash]
+            for hash in self.processed[file]:
+                item = self.processed[file][hash]
                 id = item['hash'] + item['file'].replace('/','%2F')
-                if (id in uploaded) and uploaded[id]:
+                if (id in self.uploaded) and self.uploaded[id]:
                     items_uploaded += 1
                     continue
                 items_to_upload += 1
@@ -407,9 +407,10 @@ class BlameUpload():
                     '_id': id,
                     '_source': item
                 }
-                logging.debug("Produced item for %s, %s.", file, hash)
+                logging.debug("BlameUpload: Produced item to upload for %s.", id)
                 yield action
-        print('Items already uploaded: ', str(items_uploaded), ", to upload: ", str(items_to_upload))
+        print('BlameUpload: Items uploaded earlier: ', str(items_uploaded),
+                ", uploaded now: ", str(items_to_upload))
 
 class BlameFilesUpload():
 
@@ -425,21 +426,22 @@ class BlameFilesUpload():
         items_uploaded = 0
         items_to_upload = 0
         for file in self.processed:
-            item = processed[file]
             id = file.replace('/','%2F')
-            if (id in uploaded) and uploaded[id]:
+            if (id in self.uploaded) and self.uploaded[id]:
                 items_uploaded += 1
                 continue
             items_to_upload += 1
+            item = self.processed[file]
             action = {
                 '_index': self.es_index,
                 '_type': self.es_type,
                 '_id': id,
                 '_source': item
             }
-            logging.debug("Produced item for %s, %s.", file, hash)
+            logging.debug("BlameFilesUpload: Produced item to upload for %s.", id)
             yield action
-        print('Items already uploaded: ', str(items_uploaded), ", to upload: ", str(items_to_upload))
+        print('BlameFilesUpload: BlameFilesUpload: Items uploaded earlier: ',
+                str(items_uploaded), ", uploaded now: ", str(items_to_upload))
 
 def upload_raw(processed, uploaded, es_url, es_index, es_type, es_mapping,
     uploader_class):
