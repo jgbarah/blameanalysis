@@ -476,6 +476,10 @@ def upload_raw(processed, uploaded, es_url, es_index, es_type, es_mapping,
         logging.debug("Uploaded: %s (%s)", id, result[0])
     print("Items actually uploaded: ", items_uploaded, ", items failed: ", items_failed)
 
+def close_shelves(shelves):
+
+    for to_close in shelves:
+        to_close.close()
 
 if __name__ == "__main__":
     args = parse_args()
@@ -492,11 +496,12 @@ if __name__ == "__main__":
             logging.basicConfig(format=log_format, level=level)
 
     store = shelve.open(args.store)
+
     if (not args.assume_store) and (not args.assume_processed) :
         blame_analysis(repouri=args.repouri, repodir=args.repodir,
                         store=store)
     if args.store_only:
-        store.close()
+        close_shelves([store])
         exit()
 
     processed = shelve.open(args.processed)
@@ -513,16 +518,12 @@ if __name__ == "__main__":
                         processed_files=processed_files,
                         identities=identities, now=now)
         except:
-            store.close()
-            processed.close()
-            processed_files.close()
+            close_shelves([store, processed, processed_files])
             raise
 
-
+    close_shelves([store])
     if args.process_only:
-        store.close()
-        processed.close()
-        processed_files.close()
+        close_shelves([processed, processed_files])
         exit()
 
     uploaded = shelve.open(args.uploaded)
@@ -539,15 +540,6 @@ if __name__ == "__main__":
                     es_type='file_hash',
                     uploader_class=BlameUpload)
     except:
-        store.close()
-        processed.close()
-        processed_files.close()
-        uploaded.close()
-        uploaded_files.close()
         raise
-
-    store.close()
-    processed.close()
-    processed_files.close()
-    uploaded.close()
-    uploaded_files.close()
+    finally:
+        close_shelves([processed, processed_files, uploaded, uploaded_files])
