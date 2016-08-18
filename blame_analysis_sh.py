@@ -285,7 +285,7 @@ def blame_process(store, processed, processed_files, identities=None,
         processed[file] = data
 
         processed_files[file] = {
-            'name': file,
+            'file': file,
             'dir1': dir1,
             'dir2': dir2,
             'dir3': dir3,
