@@ -228,14 +228,6 @@ def blame_process(store, processed, processed_files, identities=None,
             dir4 = None
         ext = os.path.splitext(file)[1]
 
-        processed_files[file] = {
-            'name': file,
-            'dir1': dir1,
-            'dir2': dir2,
-            'dir3': dir3,
-            'dir4': dir4,
-            'ext': ext
-        }
         first_commit = None
         last_commit = None
         first_author = None
@@ -290,11 +282,22 @@ def blame_process(store, processed, processed_files, identities=None,
                 data[hash]['lines'] += int(snippet_data['lines'])
             logging.info("Files / hashes done: %d / %d.", nfile, nhash)
 
-        processed_files[file]['first_commit'] = first_commit
-        processed_files[file]['last_commit'] = last_commit
-        processed_files[file]['first_author'] = first_author
-        processed_files[file]['last_author'] = last_author
         processed[file] = data
+
+        processed_files[file] = {
+            'name': file,
+            'dir1': dir1,
+            'dir2': dir2,
+            'dir3': dir3,
+            'dir4': dir4,
+            'ext': ext,
+            'first_commit': first_commit,
+            'last_commit': last_commit,
+            'first_author': first_author,
+            'last_author': last_author
+        }
+        logging.info("File done: %d.", nfile)
+        logging.debug("File done: %s.", str(processed_files[file]))
 
     logging.info("Process finished: (files present, files done, hashes done): %d, %d, %d.",
                 files_done, nfile, nhash)
@@ -436,7 +439,6 @@ class BlameFilesUpload():
                 '_id': id,
                 '_source': item
             }
-            logging.debug("BlameFilesUpload: Produced item to upload for %s.", id)
             yield action
         print('BlameFilesUpload: BlameFilesUpload: Items uploaded earlier: ',
                 str(items_uploaded), ", uploaded now: ", str(items_to_upload))
@@ -471,7 +473,7 @@ def upload_raw(processed, uploaded, es_url, es_index, es_type, es_mapping,
         else:
             uploaded[id] = False
             items_failed += 1
-        logging.debug("Uploaded: %s (%s)", id, result[0])
+        logging.debug("Uploaded: %s (%s)", id, str(result[1]))
     print("Items actually uploaded: ", items_uploaded, ", items failed: ", items_failed)
 
 def close_shelves(shelves):
