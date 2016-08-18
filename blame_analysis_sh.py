@@ -294,7 +294,13 @@ def blame_process(store, processed, processed_files, identities=None,
             'first_commit': first_commit,
             'last_commit': last_commit,
             'first_author': first_author,
-            'last_author': last_author
+            'last_author': last_author,
+            'since_author': now - last_author,
+            'since_commit': now - last_commit,
+            'since_first_author': now - first_author,
+            'since_first_commit': now - first_commit,
+            'duration_author': last_author - first_author,
+            'duration_commit': last_commit - first_commit
         }
         logging.info("File done: %d.", nfile)
         logging.debug("File done: %s.", str(processed_files[file]))
@@ -348,6 +354,18 @@ mapping_file = {
         "first_commit": {"type": "date",
                     "format": "epoch_second"},
         "last_commit": {"type": "date",
+                    "format": "epoch_second"},
+        "since_author": {"type": "date",
+                    "format": "epoch_second"},
+        "since_commit": {"type": "date",
+                    "format": "epoch_second"},
+        "since_first_author": {"type": "date",
+                    "format": "epoch_second"},
+        "since_first_commit": {"type": "date",
+                    "format": "epoch_second"},
+        "duration_author": {"type": "date",
+                    "format": "epoch_second"},
+        "duration_commit": {"type": "date",
                     "format": "epoch_second"},
         "file": {"type": "string",
                     "index": "not_analyzed"},
