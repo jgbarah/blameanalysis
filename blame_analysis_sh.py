@@ -95,13 +95,13 @@ def blame_analysis(repouri, repodir, store):
         nfile = 0
         filename = None
         for snippet in git_blame.blame():
-            if filename != snippet['data']['filename']:
+            if filename != snippet['data']['file_blamed']:
                 # Getting snippets for a new file
                 # Store the previous one, and prepare for the new one
                 if filename != None:
                     store[filename] = snippets
                 nfile += 1
-                filename = snippet['data']['filename']
+                filename = snippet['data']['file_blamed']
                 logging.info('File %d, snippet %d: %s.', nfile, nsnippet, filename)
                 snippets = []
             logging.debug(json.dumps(snippet, indent=4, sort_keys=True))
@@ -201,6 +201,7 @@ def blame_process(store, processed, processed_files, identities=None,
     errors = []
 
     for file in store:
+        logging.debug('Processing file: %s.', file)
         if file in processed:
             files_done += 1
             continue
@@ -243,6 +244,7 @@ def blame_process(store, processed, processed_files, identities=None,
                 try:
                     data[hash] = {
                         'file': file,
+                        'fileorig': snippet_data['filename'],
                         'hash': snippet_data['hash'],
                         'committer_time': int(snippet_data['committer-time']),
                         'author_time': int(snippet_data['author-time']),
@@ -355,18 +357,12 @@ mapping_file = {
                     "format": "epoch_second"},
         "last_commit": {"type": "date",
                     "format": "epoch_second"},
-        "since_author": {"type": "date",
-                    "format": "epoch_second"},
-        "since_commit": {"type": "date",
-                    "format": "epoch_second"},
-        "since_first_author": {"type": "date",
-                    "format": "epoch_second"},
-        "since_first_commit": {"type": "date",
-                    "format": "epoch_second"},
-        "duration_author": {"type": "date",
-                    "format": "epoch_second"},
-        "duration_commit": {"type": "date",
-                    "format": "epoch_second"},
+        "since_author": {"type": "float"},
+        "since_commit": {"type": "float"},
+        "since_first_author": {"type": "float"},
+        "since_first_commit": {"type": "float"},
+        "duration_author": {"type": "float"},
+        "duration_commit": {"type": "float"},
         "file": {"type": "string",
                     "index": "not_analyzed"},
         "dir1": {"type": "string",
